@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Audio De-Noiser | Pure Client-Side Audio Restoration</title>
+  <meta name="description" content="AI生成楽曲 (Suno / Udio 等) に特化した純クライアントサイド高周波ヒスノイズ適応低減ツール。ゼロ外部依存・Web Audio API & STFT Wiener Filter">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300f2fe' stroke-width='2'%3E%3Cpolygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/%3E%3Cpath d='M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand-title">
+      <h1>AI Audio De-Noiser</h1>
+      <span class="version-badge">v1.3.0</span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main>
+    <!-- File Drop Zone -->
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg">
+      <div class="drop-title">🎵 Drag & Drop Audio File Here or Click to Browse</div>
+    </div>
+
+    <!-- Track Meta Banner -->
+    <div class="track-meta-banner" id="trackMetaBanner" style="display: none;">
+      <div class="track-info-group">
+        <span class="info-tag">File: <strong id="metaFileName">-</strong></span>
+        <span class="info-tag">Sample Rate: <strong id="metaSampleRate">- Hz</strong></span>
+        <span class="info-tag">Channels: <strong id="metaChannels">-</strong></span>
+        <span class="info-tag">Duration: <strong id="metaDuration">-:--</strong></span>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-header">
+        <span id="progressStatusText">Analyzing adaptive noise...</span>
+        <span id="progressPercentText">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBarFill"></div>
+      </div>
+    </div>
+
+    <!-- Visualizers Grid -->
+    <div class="visualizers-grid">
+      <!-- 1. Noise Floor Timeline / 2D Gain Map Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            <span id="visualizerTitle">Timeline Noise Floor & Dynamics</span>
+          </div>
+
+          <!-- View Switch Tabs -->
+          <div class="view-switch-group">
+            <button class="view-tab-btn active" id="tabTimelineRMS" data-tab="rms">📈 RMS & Noise Floor</button>
+            <button class="view-tab-btn" id="tabTimeline2D" data-tab="2d">🔲 2D Gain & Transient Map</button>
+          </div>
+
+          <!-- Legends -->
+          <div id="legendRMS" style="font-size: 0.75rem; color: var(--text-sub); display: flex; gap: 12px;">
+            <span style="color: #60a5fa;">■ Track RMS</span>
+            <span style="color: var(--accent-pink);">■ HF Noise Floor (6k-16kHz)</span>
+            <span style="color: var(--accent-green);">■ Cleaned Noise Floor</span>
+          </div>
+          <div id="legend2D" style="font-size: 0.75rem; color: var(--text-sub); display: none; gap: 12px; align-items: center;">
+            <span style="color: #fbbf24;">━ Attack Protection (0-100%)</span>
+            <span style="color: #00b4d8;">■ Noise Attenuation (0dB to -12dB)</span>
+            <span style="color: #fbbf24; opacity: 0.8;">╌ Cutoff Frequency</span>
+          </div>
+        </div>
+
+        <!-- Container 1: RMS / Noise Floor Timeline -->
+        <div class="canvas-container" id="containerRMS" style="height: 180px;">
+          <canvas id="canvasTimeline"></canvas>
+        </div>
+
+        <!-- Container 2: 2D Attenuation & Transient Bypass Map -->
+        <div class="canvas-container" id="container2D" style="height: 180px; display: none;">
+          <canvas id="canvas2DMap"></canvas>
+        </div>
+      </div>
+
+      <!-- 2. Realtime Spectrum Canvas -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple)" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Realtime Multi-Spectrum Analyzer
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-sub); display: flex; gap: 12px; flex-wrap: wrap;">
+            <span style="color: #3b82f6;">■ 原音 (Original)</span>
+            <span style="color: var(--accent-green);">■ 除去後 (Denoised)</span>
+            <span style="color: var(--accent-cyan);">■ 除去後高域 (Highs Clean)</span>
+            <span style="color: var(--accent-pink);">■ 除去差分 (Delta)</span>
+          </div>
+        </div>
+        <div class="canvas-container" style="height: 180px;">
+          <canvas id="canvasSpectrum"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Player & Monitoring Card -->
+    <div class="player-card">
+      <!-- Seekbar -->
+      <div class="seek-container">
+        <span class="time-label" id="timeCurrent">0:00</span>
+        <input type="range" class="seek-bar" id="seekBar" min="0" max="100" step="0.1" value="0" disabled>
+        <span class="time-label" id="timeTotal">0:00</span>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="playback-toolbar">
+        <div class="playback-buttons">
+          <button class="btn" id="btnPlayPause" disabled>
+            <svg id="iconPlay" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span id="labelPlay">Play</span>
+          </button>
+          <button class="btn" id="btnLoop" style="opacity: 0.6;">
+            🔁 Loop
+          </button>
+        </div>
+
+        <!-- A/B Comparison Switch -->
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 0.8rem; color: var(--text-sub); font-weight: 600;">Source:</span>
+          <div class="ab-switch-group">
+            <button class="ab-btn active" data-mode="denoised" id="btnModeDenoised">Denoised (除去後)</button>
+            <button class="ab-btn" data-mode="original" id="btnModeOriginal">Original (原音)</button>
+            <button class="ab-btn" data-mode="highs-clean" id="btnModeHighsClean" title="Cutoff周波数以上のノイズ除去後音声">Highs Clean (除去後高域)</button>
+            <button class="ab-btn" data-mode="delta" id="btnModeDelta">Delta (除去ノイズのみ)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Parameters Configuration Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-yellow)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Adaptive Denoise Parameters
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div id="paramStatusBadge" style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--accent-green); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 10px; border-radius: 9999px; transition: all 0.2s ease;">
+            🟢 適用済み
+          </div>
+          <button class="btn btn-primary" id="btnApplyParams" style="padding: 6px 14px; font-size: 0.8rem; font-weight: 700;" disabled>
+            ⚡ 変更を適用 (Apply)
+          </button>
+        </div>
+      </div>
+
+      <div class="params-grid">
+        <!-- Param 1: Reduction Amount -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">ノイズ減衰量 (Amount)</span>
+            <span class="param-val" id="valAmount">12.0 dB</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderAmount" min="2" max="24" step="0.5" value="12">
+          <span class="param-desc">ノイズ成分の最大減衰幅。強すぎると原音の空気感が減るため、10〜14dBが最適推奨です。</span>
+        </div>
+
+        <!-- Param 2: Target Cutoff Frequency -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">対象周波数の下限 (Cutoff)</span>
+            <span class="param-val" id="valCutoff">6,000 Hz</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderCutoff" min="3000" max="12000" step="500" value="6000">
+          <span class="param-desc">この周波数以上の高周波ヒス/ホワイトノイズを集中的に低減します。中低域には一切影響しません。</span>
+        </div>
+
+        <!-- Param 3: Adaptive Tracking Speed -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">適応追従速度 (Tracking)</span>
+            <span class="param-val" id="valTracking">1.5 sec</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderTracking" min="0.5" max="3.5" step="0.25" value="1.5">
+          <span class="param-desc">曲の後半にかけて増大するノイズフロアの追従感度。1.5秒前後で休符や静音のノイズを的確に補足します。</span>
+        </div>
+
+        <!-- Param 4: Transient Protection -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">アタック保護 (Transient)</span>
+            <span class="param-val" id="valTransient">80 %</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderTransient" min="0" max="100" step="5" value="80">
+          <span class="param-desc">打楽器（スネア・ハイハット）やボーカルの立ち上がり瞬間を検知し、ノイズ除去を瞬間バイパスしてパンチ感を保持。</span>
+        </div>
+
+        <!-- Param 5: Oversubtraction (Alpha) -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">除去強度 (Aggressiveness)</span>
+            <span class="param-val" id="valAlpha">1.3 x</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderAlpha" min="1.0" max="2.0" step="0.05" value="1.3">
+          <span class="param-desc">スペクトル引き算のオーバーサブトラクション係数。微細なノイズの残りかすを徹底除去します。</span>
+        </div>
+
+        <!-- Param 6: Musical Noise Smoothing -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">ミュージカルノイズ平滑化 (Smoothing)</span>
+            <span class="param-val" id="valSmoothing">Medium</span>
+          </div>
+          <select class="param-select" id="selectSmoothing">
+            <option value="low">Low (最小平滑化・トランジェント最優先)</option>
+            <option value="med" selected>Medium (標準推奨・高い自然さ)</option>
+            <option value="high">High (強力平滑化・残響感を保護)</option>
+          </select>
+          <span class="param-desc">時間・周波数方向の2次元スムージング。プチプチ・ピロピロとしたアーティファクトを根絶。</span>
+        </div>
+      </div>
+    </div>
+    <!-- Export Configuration Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          WAV Export
+        </div>
+      </div>
+      <div class="export-grid">
+        <div class="export-col">
+          <label for="exportSampleRate">Sample Rate</label>
+          <select class="param-select" id="exportSampleRate">
+            <option value="source">Same as Source (Recommended)</option>
+            <option value="44100">44,100 Hz (CD Standard)</option>
+            <option value="48000">48,000 Hz (Broadcast Standard)</option>
+            <option value="96000">96,000 Hz (Hi-Res)</option>
+          </select>
+        </div>
+        <div class="export-col">
+          <label for="exportBitDepth">Bit Depth</label>
+          <select class="param-select" id="exportBitDepth">
+            <option value="16">16-bit PCM (TPDF Dither / CD Standard)</option>
+            <option value="24" selected>24-bit PCM (Studio Master / 144dB)</option>
+            <option value="32">32-bit Float (DAW / Clip-Free)</option>
+          </select>
+        </div>
+        <div class="export-col">
+          <label for="exportTargetMode">Export Target</label>
+          <select class="param-select" id="exportTargetMode">
+            <option value="denoised" selected>Denoised (Master Audio)</option>
+            <option value="highs-clean">Highs Clean (Above Cutoff)</option>
+            <option value="delta">Delta (Removed Noise Only)</option>
+          </select>
+        </div>
+        <div class="export-col export-btn-col">
+          <button class="btn btn-primary btn-export-action" id="btnConfirmExport" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export WAV
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    AI Audio De-Noiser v1.3.0
+  </footer>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

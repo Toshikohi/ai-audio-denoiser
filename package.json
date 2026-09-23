@@ -1,0 +1,28 @@
+{
+  "name": "ai-audio-denoiser-app",
+  "version": "1.3.0",
+  "description": "Professional AI-Generated Audio Denoising Web App (Zero External Dependencies, Pure Web Audio API & STFT Wiener Filtering)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "audio",
+    "dsp",
+    "denoiser",
+    "stft",
+    "webaudio",
+    "wiener-filter",
+    "suno",
+    "udio"
+  ],
+  "author": "Toshikohi",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}
