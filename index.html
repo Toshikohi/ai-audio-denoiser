@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Audio De-Noiser | Pure Client-Side Audio Restoration</title>
+  <meta name="description" content="AI生成楽曲 (Suno / Udio 等) に特化した純クライアントサイド高周波ヒスノイズ適応低減ツール。ゼロ外部依存・Web Audio API & STFT Wiener Filter">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300f2fe' stroke-width='2'%3E%3Cpolygon points='11 5 6 9 2 9 2 15 6 15 11 19 11 5'/%3E%3Cpath d='M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07'/%3E%3C/svg%3E">
+  <script type="module" crossorigin>(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const t of document.querySelectorAll('link[rel="modulepreload"]'))l(t);new MutationObserver(t=>{for(const f of t)if(f.type==="childList")for(const a of f.addedNodes)a.tagName==="LINK"&&a.rel==="modulepreload"&&l(a)}).observe(document,{childList:!0,subtree:!0});function u(t){const f={};return t.integrity&&(f.integrity=t.integrity),t.referrerPolicy&&(f.referrerPolicy=t.referrerPolicy),t.crossOrigin==="use-credentials"?f.credentials="include":t.crossOrigin==="anonymous"?f.credentials="omit":f.credentials="same-origin",f}function l(t){if(t.ep)return;t.ep=!0;const f=u(t);fetch(t.href,f)}})();class ce{size;cosTable;sinTable;hannWindow;bitRev;real;imag;constructor(e=2048){this.size=e,this.cosTable=new Float32Array(e/2),this.sinTable=new Float32Array(e/2),this.hannWindow=new Float32Array(e),this.bitRev=new Uint32Array(e);for(let l=0;l<e/2;l++)this.cosTable[l]=Math.cos(-2*Math.PI*l/e),this.sinTable[l]=Math.sin(-2*Math.PI*l/e);for(let l=0;l<e;l++)this.hannWindow[l]=.5*(1-Math.cos(2*Math.PI*l/e));let u=0;for(let l=0;l<e-1;l++){this.bitRev[l]=u;let t=e>>1;for(;t<=u;)u-=t,t>>=1;u+=t}this.bitRev[e-1]=e-1,this.real=new Float32Array(e),this.imag=new Float32Array(e)}fft(e,u,l){const t=this.size,f=this.real,a=this.imag,h=this.hannWindow,p=this.bitRev;for(let r=0;r<t;r++){const s=p[r];f[s]=e[r]*h[r],a[s]=0}for(let r=1;r<t;r<<=1){const s=r<<1,c=t/s;for(let d=0;d<t;d+=s)for(let o=0;o<r;o++){const y=o*c,B=this.cosTable[y],S=this.sinTable[y],x=f[d+o+r]*B-a[d+o+r]*S,m=f[d+o+r]*S+a[d+o+r]*B;f[d+o+r]=f[d+o]-x,a[d+o+r]=a[d+o]-m,f[d+o]+=x,a[d+o]+=m}}for(let r=0;r<=t/2;r++)u[r]=f[r],l[r]=a[r]}ifft(e,u,l){const t=this.size,f=this.real,a=this.imag,h=this.bitRev;for(let s=0;s<=t/2;s++){const c=h[s];f[c]=e[s],a[c]=u[s]}for(let s=t/2+1;s<t;s++){const c=h[s],d=t-s;f[c]=e[d],a[c]=-u[d]}for(let s=1;s<t;s<<=1){const c=s<<1,d=t/c;for(let o=0;o<t;o+=c)for(let y=0;y<s;y++){const B=y*d,S=this.cosTable[B],x=-this.sinTable[B],m=f[o+y+s]*S-a[o+y+s]*x,w=f[o+y+s]*x+a[o+y+s]*S;f[o+y+s]=f[o+y]-m,a[o+y+s]=a[o+y]-w,f[o+y]+=m,a[o+y]+=w}}const p=this.hannWindow,r=1/t;for(let s=0;s<t;s++)l[s]=f[s]*r*p[s]}}function fe(n){const e=n.sampleRate,u=n.getChannelData(0),l=n.numberOfChannels>1?n.getChannelData(1):u,t=n.length,f=2048,a=2048,h=Math.floor(t/a),p=new Float32Array(h),r=new Float32Array(h),s=new Float32Array(h);for(let c=0;c<h;c++){const d=c*a;let o=0,y=0;for(let x=0;x<f&&d+x<t;x++){const m=(u[d+x]+l[d+x])*.5;if(o+=m*m,x>0){const w=(u[d+x-1]+l[d+x-1])*.5,b=m-w;y+=b*b}}p[c]=(d+f/2)/e;const B=Math.sqrt(o/f),S=Math.sqrt(y/f);r[c]=Math.max(-80,20*Math.log10(B+1e-9)),s[c]=Math.max(-80,20*Math.log10(S+1e-9))}return{times:p,rmsOrig:r,noiseOrig:s,noiseClean:null}}async function de(n){const{audioCtx:e,srcBuffer:u,params:l,cachedSTFT:t,fftSize:f=2048,hopSize:a=512,onProgress:h}=n,p=u.sampleRate,r=u.numberOfChannels,s=u.length,c=f,d=a,o=Math.floor((s-c)/d)+1,y=new ce(c),B=new Float32Array(c/2+1);for(let C=0;C<=c/2;C++)B[C]=C*p/c;const S=l.cutoffHz,x=S*.8,m=new Float32Array(c/2+1);for(let C=0;C<=c/2;C++)B[C]<=x?m[C]=0:B[C]>=S?m[C]=1:m[C]=(B[C]-x)/(S-x);const w=Math.pow(10,-l.amountDb/20),b=Math.max(5,Math.floor(l.trackingSec*p/d)),I=l.alpha,F=l.transientSens;let tt=t||[];if(!t||t.length!==r){tt=[];const C=new Float32Array(c),U=new Float32Array(c/2+1),q=new Float32Array(c/2+1);for(let W=0;W<r;W++){const H=u.getChannelData(W),V=new Array(o),et=new Array(o),G=new Float32Array(o);for(let L=0;L<o;L++){const it=L*d;for(let k=0;k<c;k++)C[k]=H[it+k];y.fft(C,U,q);const K=new Float32Array(c/2+1),j=new Float32Array(c/2+1);for(let k=0;k<=c/2;k++){const g=U[k],T=q[k];K[k]=Math.sqrt(g*g+T*T),j[k]=Math.atan2(T,g)}if(V[L]=K,et[L]=j,L>0){let k=0;const g=V[L-1];for(let T=0;T<=c/2;T++)if(B[T]>=1e3&&B[T]<=8e3){const R=K[T]-g[T];R>0&&(k+=R)}G[L]=k}if(L%150===0&&h){const k=Math.round((W*o+L)/(r*o*2)*100);await h(k,`Analyzing acoustics (${W+1}/${r}ch)...`),await new Promise(g=>setTimeout(g,0))}}const pt=Float32Array.from(G).sort()[Math.floor(o*.9)]+1e-7;tt.push({mags:V,phases:et,fluxes:G,p90Flux:pt})}}const ht=[],At=[],Et=[],Lt=new Float32Array(c/2+1),Ft=new Float32Array(c/2+1),Pt=new Float32Array(c),kt=new Float32Array(c/2+1),Dt=new Float32Array(c/2+1),It=new Float32Array(c);let Rt=null;for(let C=0;C<r;C++){const U=u.getChannelData(C),q=new Float32Array(s),W=new Float32Array(s),H=new Float32Array(s),{mags:V,phases:et,fluxes:G,p90Flux:yt}=tt[C];if(h){const g=20+Math.round(C/r*15);await h(g,`Estimating noise floor (${C+1}/${r}ch)...`),await new Promise(T=>setTimeout(T,0))}const pt=Math.max(1,Math.floor(b/4)),L=[];for(let g=0;g<o;g+=pt)L.push(g);L[L.length-1]!==o-1&&L.push(o-1);const it=[];for(const g of L){const T=Math.max(0,g-Math.floor(b/2)),$=Math.min(o,g+Math.floor(b/2)+1)-T,O=new Float32Array(c/2+1),v=new Float32Array($);for(let M=0;M<=c/2;M++)if(m[M]!==0){for(let N=0;N<$;N++)v[N]=V[T+N][M];v.sort(),O[M]=v[Math.floor($*.15)]}it.push(O)}if(h){const g=35+Math.round(C/r*15);await h(g,`Applying spectral gain (${C+1}/${r}ch)...`),await new Promise(T=>setTimeout(T,0))}const K=new Array(o);let j=0;for(let g=0;g<o;g++){for(;j<L.length-1&&L[j+1]<=g;)j++;const T=L[j],R=L[Math.min(L.length-1,j+1)],$=R===T?0:(g-T)/(R-T),O=it[j],v=it[Math.min(L.length-1,j+1)],M=new Float32Array(c/2+1),N=V[g],z=Math.min(1,G[g]/yt)*F;for(let E=0;E<=c/2;E++){if(m[E]===0){M[E]=1;continue}const nt=(1-$)*O[E]+$*v[E],Y=(N[E]+1e-9)/(nt+1e-9);let X=1-Math.pow(I/Y,1.2);X<w&&(X=w),X>1&&(X=1);const xt=(1-m[E])*1+m[E]*X;M[E]=(1-z)*xt+z*1}for(let E=1;E<c/2;E++)m[E]>0&&(M[E]=.25*M[E-1]+.5*M[E]+.25*M[E+1]);if(g>0){const E=K[g-1],nt=l.smoothing==="high"?.8:l.smoothing==="med"?.65:.45;for(let Y=0;Y<=c/2;Y++)M[Y]=(1-nt)*M[Y]+nt*E[Y]}K[g]=M}if(C===0){const R=document.createElement("canvas");R.width=400,R.height=120;const $=R.getContext("2d"),O=$.createImageData(400,120),v=O.data,M=new Float32Array(400),N=p/2,rt=Math.max(6,l.amountDb);for(let z=0;z<400;z++){const E=Math.min(o-1,Math.floor(z/399*(o-1))),nt=K[E],Y=Math.min(1,G[E]/yt);M[z]=Y*F;for(let X=0;X<120;X++){const xt=(119-X)/119,oe=20*Math.pow(N/20,xt);let lt=Math.round(oe/N*(c/2));lt<0&&(lt=0),lt>c/2&&(lt=c/2);const ae=nt[lt],se=-20*Math.log10(Math.max(1e-4,ae)),Q=Math.min(1,Math.max(0,se/rt)),J=(X*400+z)*4;if(Q<=.02)v[J]=6,v[J+1]=8,v[J+2]=14,v[J+3]=255;else{const ie=Math.round(6*(1-Q)+0*Q),re=Math.round(8*(1-Q)+180*Q),le=Math.round(14*(1-Q)+216*Q);v[J]=ie,v[J+1]=re,v[J+2]=le,v[J+3]=255}}}$.putImageData(O,0,0),Rt={offscreenCanvas:R,attacks:M,duration:u.duration,cutoffHz:l.cutoffHz,amountDb:l.amountDb,sampleRate:p}}for(let g=0;g<o;g++){const T=V[g],R=et[g],$=K[g];for(let v=0;v<=c/2;v++){const M=T[v]*$[v],N=Math.cos(R[v]),rt=Math.sin(R[v]);Lt[v]=M*N,Ft[v]=M*rt;const z=m[v];kt[v]=M*z*N,Dt[v]=M*z*rt}y.ifft(Lt,Ft,Pt),y.ifft(kt,Dt,It);const O=g*d;for(let v=0;v<c;v++){q[O+v]+=Pt[v],W[O+v]+=It[v];const M=y.hannWindow[v];H[O+v]+=M*M}if(g%150===0&&h){const v=50+Math.round((C*o+g)/(r*o*2)*50);await h(v,`Synthesizing audio (${C+1}/${r}ch)...`),await new Promise(M=>setTimeout(M,0))}}for(let g=0;g<s;g++)if(H[g]>1e-6){const T=1/H[g];q[g]*=T,W[g]*=T}const k=new Float32Array(s);for(let g=0;g<s;g++)k[g]=U[g]-q[g];ht.push(q),At.push(k),Et.push(W)}const Ht=e.createBuffer(r,s,p),Nt=e.createBuffer(r,s,p),Wt=e.createBuffer(r,s,p);for(let C=0;C<r;C++)Ht.getChannelData(C).set(ht[C]),Nt.getChannelData(C).set(At[C]),Wt.getChannelData(C).set(Et[C]);const $t=2048,Ot=Math.floor(s/$t),zt=new Float32Array(Ot),gt=ht[0],Ut=r>1?ht[1]:gt;for(let C=0;C<Ot;C++){const U=C*$t;let q=0;for(let H=1;H<2048&&U+H<s;H++){const V=(gt[U+H]+Ut[U+H])*.5,et=(gt[U+H-1]+Ut[U+H-1])*.5,G=V-et;q+=G*G}const W=Math.sqrt(q/2048);zt[C]=Math.max(-80,20*Math.log10(W+1e-9))}return{result:{denoisedBuffer:Ht,deltaBuffer:Nt,highsCleanBuffer:Wt,map2DData:Rt,noiseClean:zt},stftCache:tt}}function ue(n,e=24){const u=n.numberOfChannels,l=n.sampleRate,t=n.length,f=e===32,a=e===24,h=f?4:a?3:2,p=u*h,r=l*p,s=t*p,c=44+s,d=new ArrayBuffer(c),o=new DataView(d);function y(m,w){for(let b=0;b<w.length;b++)o.setUint8(m+b,w.charCodeAt(b))}y(0,"RIFF"),o.setUint32(4,36+s,!0),y(8,"WAVE"),y(12,"fmt "),o.setUint32(16,16,!0),o.setUint16(20,f?3:1,!0),o.setUint16(22,u,!0),o.setUint32(24,l,!0),o.setUint32(28,r,!0),o.setUint16(32,p,!0),o.setUint16(34,h*8,!0),y(36,"data"),o.setUint32(40,s,!0);const B=n.getChannelData(0),S=u>1?n.getChannelData(1):B;let x=44;if(f)for(let m=0;m<t;m++)o.setFloat32(x,B[m],!0),x+=4,u>1&&(o.setFloat32(x,S[m],!0),x+=4);else if(a)for(let m=0;m<t;m++){const w=Math.max(-1,Math.min(1,B[m]));let b=Math.max(-8388608,Math.min(8388607,Math.round(w*8388607)));if(b<0&&(b+=16777216),o.setUint8(x,b&255),o.setUint8(x+1,b>>8&255),o.setUint8(x+2,b>>16&255),x+=3,u>1){const I=Math.max(-1,Math.min(1,S[m]));let F=Math.max(-8388608,Math.min(8388607,Math.round(I*8388607)));F<0&&(F+=16777216),o.setUint8(x,F&255),o.setUint8(x+1,F>>8&255),o.setUint8(x+2,F>>16&255),x+=3}}else for(let m=0;m<t;m++){const w=(Math.random()-Math.random())/32768,b=Math.max(-1,Math.min(1,B[m]+w));if(o.setInt16(x,b<0?Math.round(b*32768):Math.round(b*32767),!0),x+=2,u>1){const I=(Math.random()-Math.random())/32768,F=Math.max(-1,Math.min(1,S[m]+I));o.setInt16(x,F<0?Math.round(F*32768):Math.round(F*32767),!0),x+=2}}return new Blob([d],{type:"audio/wav"})}async function he(n,e,u){let l=n;if(e.targetSampleRate!=="source"){const p=e.targetSampleRate;if(p!==n.sampleRate){const r=window.OfflineAudioContext||window.webkitOfflineAudioContext,s=Math.round(n.duration*p),c=new r(n.numberOfChannels,s,p),d=c.createBufferSource();d.buffer=n,d.connect(c.destination),d.start(0),l=await c.startRendering()}}const t=ue(l,e.bitDepth),f=URL.createObjectURL(t),a=document.createElement("a"),h=(u||"audio").replace(/\.[^/.]+$/,"");a.download=`${h}_${e.targetMode}_${e.bitDepth}bit.wav`,a.href=f,document.body.appendChild(a),a.click(),document.body.removeChild(a),setTimeout(()=>URL.revokeObjectURL(f),1e4)}class me{audioCtx=null;analyser=null;sourceNode=null;currentBuffer=null;isPlayingState=!1;isLoopState=!1;startTime=0;pauseOffset=0;onEnded;onStateChange;getAudioContext(){if(!this.audioCtx){const e=window.AudioContext||window.webkitAudioContext;this.audioCtx=new e,this.analyser=this.audioCtx.createAnalyser(),this.analyser.fftSize=2048,this.analyser.smoothingTimeConstant=.8}return this.audioCtx.state==="suspended"&&this.audioCtx.resume(),this.audioCtx}getAnalyser(){return this.analyser}get isPlaying(){return this.isPlayingState}get isLoop(){return this.isLoopState}setLoop(e){this.isLoopState=e,this.sourceNode&&(this.sourceNode.loop=e)}setBuffer(e){this.currentBuffer=e}getCurrentBuffer(){return this.currentBuffer}getCurrentTime(){if(!this.isPlayingState||!this.audioCtx)return this.pauseOffset;let e=this.audioCtx.currentTime-this.startTime;const u=this.currentBuffer?this.currentBuffer.duration:1;return this.isLoopState&&(e=e%u),Math.min(u,Math.max(0,e))}start(e=0,u){const l=u||this.currentBuffer;if(!l)return;this.currentBuffer=l,this.stop(!1);const t=this.getAudioContext();this.sourceNode=t.createBufferSource(),this.sourceNode.buffer=l,this.sourceNode.loop=this.isLoopState,this.analyser?(this.sourceNode.connect(this.analyser),this.analyser.connect(t.destination)):this.sourceNode.connect(t.destination),this.startTime=t.currentTime-e,this.pauseOffset=e,this.sourceNode.start(0,e),this.isPlayingState=!0,this.onStateChange?.(!0),this.sourceNode.onended=()=>{this.isPlayingState&&!this.isLoopState&&this.getCurrentTime()>=l.duration-.1&&(this.stop(!0),this.onEnded?.())}}pause(){this.isPlayingState&&(this.pauseOffset=this.getCurrentTime(),this.stop(!1))}stop(e=!1){if(this.sourceNode){try{this.sourceNode.onended=null,this.sourceNode.stop(),this.sourceNode.disconnect()}catch{}this.sourceNode=null}this.isPlayingState=!1,this.onStateChange?.(!1),e&&(this.pauseOffset=0)}switchBuffer(e){if(this.currentBuffer=e,this.isPlayingState){const u=this.getCurrentTime();this.start(u,e)}}seek(e){this.isPlayingState?this.start(e):this.pauseOffset=e}}function ge(n,e,u,l){const t=n.getContext("2d");if(!t)return;const f=window.devicePixelRatio||1,a=n.getBoundingClientRect();if(a.width===0||a.height===0)return;n.width=a.width*f,n.height=a.height*f,t.scale(f,f);const h=a.width,p=a.height;if(t.fillStyle="#06080e",t.fillRect(0,0,h,p),!e||!u)return;const r=e,s=u.duration,c=r.times.length;t.strokeStyle="rgba(255, 255, 255, 0.06)",t.lineWidth=1,[-20,-40,-60].forEach(o=>{const y=p*(1-(o+80)/80);t.beginPath(),t.moveTo(0,y),t.lineTo(h,y),t.stroke(),t.fillStyle="rgba(255, 255, 255, 0.3)",t.font="9px monospace",t.fillText(`${o}dB`,4,y-2)}),t.strokeStyle="#3b82f6",t.lineWidth=1.5,t.beginPath();for(let o=0;o<c;o++){const y=r.times[o]/s*h,B=p*(1-(r.rmsOrig[o]+80)/80);o===0?t.moveTo(y,B):t.lineTo(y,B)}t.stroke(),t.strokeStyle="#f72585",t.lineWidth=2,t.beginPath();for(let o=0;o<c;o++){const y=r.times[o]/s*h,B=p*(1-(r.noiseOrig[o]+80)/80);o===0?t.moveTo(y,B):t.lineTo(y,B)}if(t.stroke(),r.noiseClean){t.strokeStyle="#10b981",t.lineWidth=2,t.beginPath();for(let o=0;o<c;o++){const y=r.times[o]/s*h,B=p*(1-(r.noiseClean[o]+80)/80);o===0?t.moveTo(y,B):t.lineTo(y,B)}t.stroke()}const d=l/s*h;t.strokeStyle="rgba(0, 242, 254, 0.9)",t.lineWidth=2,t.beginPath(),t.moveTo(d,0),t.lineTo(d,p),t.stroke(),t.fillStyle="rgba(0, 242, 254, 0.2)",t.fillRect(d-2,0,4,p)}function ut(n){if(!n||isNaN(n)||n<0)return"0:00";const e=Math.floor(n/60),u=Math.floor(n%60);return`${e}:${u<10?"0":""}${u}`}function ye(n,e,u,l){const t=n.getContext("2d");if(!t)return;const f=window.devicePixelRatio||1,a=n.getBoundingClientRect();if(a.width===0||a.height===0)return;n.width=a.width*f,n.height=a.height*f,t.scale(f,f);const h=a.width,p=a.height;if(t.fillStyle="#06080e",t.fillRect(0,0,h,p),!e||!u){t.fillStyle="rgba(255, 255, 255, 0.3)",t.font="12px Inter, sans-serif",t.textAlign="center",t.fillText("Process audio to display 2D attenuation and transient bypass map",h/2,p/2);return}const r=e.duration,s=e.attacks,c=s.length,d=34,o=p-d;t.fillStyle="#090d16",t.fillRect(0,0,h,d),t.strokeStyle="rgba(255, 255, 255, 0.08)",t.lineWidth=1,t.beginPath(),t.moveTo(0,d),t.lineTo(h,d),t.stroke(),t.fillStyle="rgba(251, 191, 36, 0.85)",t.font="9px monospace",t.textAlign="left",t.fillText("⚡ Transient Attack Protection (Bypass Rate)",8,12),t.fillStyle="rgba(255, 255, 255, 0.35)",t.textAlign="right",t.fillText("100%",h-8,12),t.fillText("0%",h-8,d-3),t.strokeStyle="#fbbf24",t.fillStyle="rgba(251, 191, 36, 0.15)",t.lineWidth=1.5,t.beginPath(),t.moveTo(0,d-2);for(let w=0;w<c;w++){const b=w/(c-1)*h,I=Math.min(1,Math.max(0,s[w])),F=d-2-I*(d-14);t.lineTo(b,F)}t.lineTo(h,d-2),t.closePath(),t.fill(),t.beginPath();for(let w=0;w<c;w++){const b=w/(c-1)*h,I=Math.min(1,Math.max(0,s[w])),F=d-2-I*(d-14);w===0?t.moveTo(b,F):t.lineTo(b,F)}t.stroke(),t.save(),t.imageSmoothingEnabled=!0,t.drawImage(e.offscreenCanvas,0,d,h,o),t.restore();const y=e.sampleRate/2,B=[100,1e3,6e3,1e4,16e3];t.lineWidth=1,B.forEach(w=>{if(w>=y)return;const b=Math.log10(w/20)/Math.log10(y/20),I=d+o*(1-b);t.strokeStyle="rgba(255, 255, 255, 0.08)",t.beginPath(),t.moveTo(0,I),t.lineTo(h,I),t.stroke(),t.fillStyle="rgba(255, 255, 255, 0.4)",t.font="9px monospace",t.textAlign="left";const F=w>=1e3?`${w/1e3}kHz`:`${w}Hz`;t.fillText(F,8,I-2)});const S=e.cutoffHz;if(S>20&&S<y){const w=Math.log10(S/20)/Math.log10(y/20),b=d+o*(1-w);t.strokeStyle="rgba(251, 191, 36, 0.7)",t.setLineDash([4,4]),t.lineWidth=1.2,t.beginPath(),t.moveTo(0,b),t.lineTo(h,b),t.stroke(),t.setLineDash([]),t.fillStyle="rgba(251, 191, 36, 0.9)",t.font="9px monospace",t.textAlign="right",t.fillText(`Cutoff (${(S/1e3).toFixed(1)}kHz)`,h-8,b-3)}const x=r>180?60:r>60?30:10;t.strokeStyle="rgba(255, 255, 255, 0.05)",t.fillStyle="rgba(255, 255, 255, 0.3)",t.font="9px monospace",t.textAlign="center";for(let w=x;w<r;w+=x){const b=w/r*h;t.beginPath(),t.moveTo(b,d),t.lineTo(b,p),t.stroke(),t.fillText(ut(w),b,p-3)}const m=l/r*h;t.strokeStyle="rgba(0, 242, 254, 0.95)",t.lineWidth=1.5,t.beginPath(),t.moveTo(m,0),t.lineTo(m,p),t.stroke(),t.fillStyle="rgba(0, 242, 254, 0.2)",t.fillRect(m-1.5,0,3,p)}const wt=new Uint8Array(1024);function Mt(n,e,u,l,t,f){const a=n.getContext("2d");if(!a)return;const h=window.devicePixelRatio||1,p=n.getBoundingClientRect();if(p.width===0||p.height===0)return;n.width=p.width*h,n.height=p.height*h,a.scale(h,h);const r=p.width,s=p.height;if(a.fillStyle="#06080e",a.fillRect(0,0,r,s),!e||!u)return;e.getByteFrequencyData(wt);const c=wt.length,d=(l?l.sampleRate:48e3)/2,o=[100,500,1e3,3e3,6e3,1e4,16e3];a.strokeStyle="rgba(255, 255, 255, 0.05)",a.fillStyle="rgba(255, 255, 255, 0.3)",a.font="9px monospace",a.lineWidth=1,o.forEach(m=>{if(m<d){const b=Math.log10(m/20)/Math.log10(d/20)*r;a.beginPath(),a.moveTo(b,0),a.lineTo(b,s),a.stroke(),a.fillText(m>=1e3?`${m/1e3}k`:`${m}`,b+2,s-4)}});const B=Math.log10(t/20)/Math.log10(d/20)*r;a.fillStyle="rgba(0, 242, 254, 0.06)",a.fillRect(B,0,r-B,s),a.strokeStyle="rgba(0, 242, 254, 0.4)",a.setLineDash([4,4]),a.beginPath(),a.moveTo(B,0),a.lineTo(B,s),a.stroke(),a.setLineDash([]);let S="#10b981",x="rgba(16, 185, 129, 0.15)";f==="original"?(S="#3b82f6",x="rgba(59, 130, 246, 0.15)"):f==="delta"?(S="#f72585",x="rgba(247, 37, 133, 0.2)"):f==="highs-clean"&&(S="#00f2fe",x="rgba(0, 242, 254, 0.25)"),a.strokeStyle=S,a.fillStyle=x,a.lineWidth=2,a.beginPath(),a.moveTo(0,s);for(let m=1;m<c;m++){const w=m*d/c;if(w<20)continue;const I=Math.log10(w/20)/Math.log10(d/20)*r,F=wt[m]/255,tt=s*(1-F);a.lineTo(I,tt)}a.lineTo(r,s),a.closePath(),a.fill(),a.stroke()}const i={rawBuffer:null,denoisedBuffer:null,deltaBuffer:null,highsCleanBuffer:null,activeMonitoringMode:"denoised",visualizerTab:"rms",timelineData:null,map2DData:null,stftCache:null,isRendering:!1,isDirty:!1,params:{amountDb:12,cutoffHz:6e3,trackingSec:1.5,transientSens:.8,alpha:1.3,smoothing:"med"},rawFileName:""},A=new me,ot=document.getElementById("dropZone"),pe=document.getElementById("fileInput"),xe=document.getElementById("trackMetaBanner"),we=document.getElementById("metaFileName"),Ce=document.getElementById("metaSampleRate"),be=document.getElementById("metaChannels"),ve=document.getElementById("metaDuration"),D=document.getElementById("btnApplyParams"),P=document.getElementById("paramStatusBadge"),_=document.getElementById("progressContainer"),ft=document.getElementById("progressStatusText"),dt=document.getElementById("progressPercentText"),st=document.getElementById("progressBarFill"),Be=document.getElementById("canvasTimeline"),Me=document.getElementById("canvas2DMap"),qt=document.getElementById("containerRMS"),jt=document.getElementById("container2D"),Ct=document.getElementById("tabTimelineRMS"),bt=document.getElementById("tabTimeline2D"),Xt=document.getElementById("visualizerTitle"),Vt=document.getElementById("legendRMS"),Gt=document.getElementById("legend2D"),Tt=document.getElementById("canvasSpectrum"),ct=document.getElementById("seekBar"),Bt=document.getElementById("timeCurrent"),Te=document.getElementById("timeTotal"),Jt=document.getElementById("btnPlayPause"),Yt=document.getElementById("iconPlay"),Zt=document.getElementById("labelPlay"),vt=document.getElementById("btnLoop"),Qt=document.querySelectorAll(".ab-btn"),Se=document.getElementById("sliderAmount"),Ae=document.getElementById("valAmount"),Ee=document.getElementById("sliderCutoff"),Le=document.getElementById("valCutoff"),Fe=document.getElementById("sliderTracking"),Pe=document.getElementById("valTracking"),ke=document.getElementById("sliderTransient"),De=document.getElementById("valTransient"),Ie=document.getElementById("sliderAlpha"),Re=document.getElementById("valAlpha"),He=document.getElementById("selectSmoothing"),_t=document.getElementById("valSmoothing"),St=document.getElementById("btnConfirmExport"),Ne=document.getElementById("exportSampleRate"),We=document.getElementById("exportBitDepth"),$e=document.getElementById("exportTargetMode");function mt(){switch(i.activeMonitoringMode){case"original":return i.rawBuffer;case"delta":return i.deltaBuffer;case"highs-clean":return i.highsCleanBuffer||i.denoisedBuffer;case"denoised":default:return i.denoisedBuffer||i.rawBuffer}}function Z(){const n=A.getCurrentTime();i.visualizerTab==="2d"?ye(Me,i.map2DData,i.rawBuffer,n):ge(Be,i.timelineData,i.rawBuffer,n)}function at(){i.rawBuffer&&(i.isDirty=!0,P&&(P.textContent="🟡 未適用の変更あり (Applyで反映)",P.style.color="var(--accent-yellow)",P.style.borderColor="rgba(245, 158, 11, 0.4)",P.style.background="rgba(245, 158, 11, 0.12)"),D&&(D.disabled=!1,D.classList.add("btn-apply-active"),D.innerHTML="⚡ 変更を適用 (Apply)"))}function Oe(){i.isDirty=!1,P&&(P.textContent="🟢 適用済み",P.style.color="var(--accent-green)",P.style.borderColor="rgba(16, 185, 129, 0.3)",P.style.background="rgba(16, 185, 129, 0.1)"),D&&(D.disabled=!0,D.classList.remove("btn-apply-active"),D.innerHTML="⚡ 変更を適用 (Apply)")}function ze(n){n?(Yt.innerHTML='<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>',Zt.textContent="Pause"):(Yt.innerHTML='<polygon points="5 3 19 12 5 21 5 3"/>',Zt.textContent="Play")}function te(n){i.activeMonitoringMode=n,Qt.forEach(u=>{u.dataset.mode===n?u.classList.add("active"):u.classList.remove("active")});const e=mt();e&&A.switchBuffer(e)}async function ee(n=!1){if(!i.rawBuffer||i.isRendering)return;i.isRendering=!0;const e=A.isPlaying,u=A.getCurrentTime();_.style.display="flex",ft.textContent=n?"Analyzing audio & initial rendering...":"Applying noise reduction parameters...",dt.textContent=i.stftCache?"20%":"5%",st.style.width=i.stftCache?"20%":"5%",D&&(D.disabled=!0,D.classList.remove("btn-apply-active"),D.innerHTML='<span class="spinner-sm"></span> 適用中...'),P&&(P.innerHTML='<span class="spinner-sm"></span> ノイズ除去処理中...',P.style.color="var(--accent-yellow)",P.style.borderColor="rgba(245, 158, 11, 0.4)",P.style.background="rgba(245, 158, 11, 0.1)"),await new Promise(l=>requestAnimationFrame(()=>setTimeout(l,0)));try{const l=A.getAudioContext(),{result:t,stftCache:f}=await de({audioCtx:l,srcBuffer:i.rawBuffer,params:i.params,cachedSTFT:i.stftCache,onProgress:(a,h)=>{ft.textContent=h,dt.textContent=`${a}%`,st.style.width=`${a}%`}});if(i.stftCache=f,i.denoisedBuffer=t.denoisedBuffer,i.deltaBuffer=t.deltaBuffer,i.highsCleanBuffer=t.highsCleanBuffer,i.map2DData=t.map2DData,i.timelineData&&(i.timelineData.noiseClean=t.noiseClean),Z(),_.style.display="none",Jt.disabled=!1,ct.disabled=!1,St.disabled=!1,Te.textContent=ut(i.rawBuffer.duration),Oe(),n)te("denoised"),A.start(0,t.denoisedBuffer);else if(e&&i.activeMonitoringMode!=="original"){const a=mt();a&&A.start(u,a)}}catch(l){console.error("Denoise failed",l),alert("ノイズ低減処理中にエラーが発生しました: "+l.message),_.style.display="none"}finally{i.isRendering=!1}}async function Kt(n){A.stop(!0),i.rawFileName=n.name,we.textContent=n.name,_.style.display="flex",ft.textContent="Decoding audio file...",dt.textContent="",st.style.width="20%";try{const e=await n.arrayBuffer();st.style.width="50%";const l=await A.getAudioContext().decodeAudioData(e);i.rawBuffer=l,i.denoisedBuffer=null,i.deltaBuffer=null,i.highsCleanBuffer=null,i.stftCache=null,Ce.textContent=`${l.sampleRate.toLocaleString()} Hz`,be.textContent=l.numberOfChannels===1?"Mono (1ch)":"Stereo (2ch)",ve.textContent=ut(l.duration),xe.style.display="flex",_.style.display="none",St.disabled=!0,i.timelineData=fe(l),Z(),await ee(!0)}catch(e){console.error("Decode failed",e),alert("音声ファイルのデコードに失敗しました: "+e.message),_.style.display="none"}}function ne(){if(A.isPlaying&&i.rawBuffer){const n=A.getCurrentTime();Bt.textContent=ut(n),ct.value=`${n/i.rawBuffer.duration*100}`,Z(),Mt(Tt,A.getAnalyser(),A.isPlaying,i.rawBuffer,i.params.cutoffHz,i.activeMonitoringMode)}requestAnimationFrame(ne)}function Ue(){A.onStateChange=n=>{ze(n)},A.onEnded=()=>{Bt.textContent="0:00",ct.value="0",Z()},ot.addEventListener("dragover",n=>{n.preventDefault(),ot.classList.add("dragover")}),ot.addEventListener("dragleave",()=>ot.classList.remove("dragover")),ot.addEventListener("drop",n=>{n.preventDefault(),ot.classList.remove("dragover"),n.dataTransfer&&n.dataTransfer.files.length>0&&Kt(n.dataTransfer.files[0])}),pe.addEventListener("change",n=>{const e=n.target;e.files&&e.files.length>0&&Kt(e.files[0])}),Jt.addEventListener("click",()=>{if(A.isPlaying)A.pause();else{const n=mt();n&&A.start(A.getCurrentTime(),n)}}),vt.addEventListener("click",()=>{const n=!A.isLoop;A.setLoop(n),vt.style.opacity=n?"1.0":"0.6",vt.style.borderColor=n?"var(--accent-cyan)":"var(--border-color)"}),ct.addEventListener("input",()=>{if(!i.rawBuffer)return;const n=parseFloat(ct.value)/100*i.rawBuffer.duration;Bt.textContent=ut(n);const e=mt();e&&(A.setBuffer(e),A.seek(n)),Z()}),Qt.forEach(n=>{n.addEventListener("click",()=>{const e=n.dataset.mode;e&&te(e)})}),Se.addEventListener("input",n=>{i.params.amountDb=parseFloat(n.target.value),Ae.textContent=`${i.params.amountDb.toFixed(1)} dB`,at()}),Ee.addEventListener("input",n=>{i.params.cutoffHz=parseInt(n.target.value,10),Le.textContent=`${i.params.cutoffHz.toLocaleString()} Hz`,at()}),Fe.addEventListener("input",n=>{i.params.trackingSec=parseFloat(n.target.value),Pe.textContent=`${i.params.trackingSec.toFixed(2)} sec`,at()}),ke.addEventListener("input",n=>{i.params.transientSens=parseFloat(n.target.value)/100,De.textContent=`${n.target.value} %`,at()}),Ie.addEventListener("input",n=>{i.params.alpha=parseFloat(n.target.value),Re.textContent=`${i.params.alpha.toFixed(2)} x`,at()}),He.addEventListener("change",n=>{const e=n.target;i.params.smoothing=e.value,_t&&(_t.textContent=e.options[e.selectedIndex].text.split(" ")[0]),at()}),D.addEventListener("click",()=>{D.disabled=!0,D.classList.remove("btn-apply-active"),D.innerHTML='<span class="spinner-sm"></span> 適用中...',P&&(P.innerHTML='<span class="spinner-sm"></span> ノイズ除去処理中...',P.style.color="var(--accent-yellow)",P.style.borderColor="rgba(245, 158, 11, 0.4)",P.style.background="rgba(245, 158, 11, 0.1)"),_.style.display="flex",ft.textContent="Applying noise reduction parameters...",dt.textContent=i.stftCache?"20%":"5%",st.style.width=i.stftCache?"20%":"5%",requestAnimationFrame(()=>{setTimeout(()=>{ee(!1)},0)})}),Ct.addEventListener("click",()=>{i.visualizerTab="rms",Ct.classList.add("active"),bt.classList.remove("active"),qt.style.display="block",jt.style.display="none",Vt.style.display="flex",Gt.style.display="none",Xt.textContent="Timeline Noise Floor & Dynamics",Z()}),bt.addEventListener("click",()=>{i.visualizerTab="2d",bt.classList.add("active"),Ct.classList.remove("active"),qt.style.display="none",jt.style.display="block",Vt.style.display="none",Gt.style.display="flex",Xt.textContent="2D Attenuation & Transient Bypass Map",Z()}),St.addEventListener("click",async()=>{const n=$e.value,e=parseInt(We.value,10)||24,u=Ne.value,l=u==="source"?"source":parseInt(u,10);let t=i.denoisedBuffer;if(n==="delta"?t=i.deltaBuffer:n==="highs-clean"&&(t=i.highsCleanBuffer||i.denoisedBuffer),!!t){_.style.display="flex",ft.textContent="Rendering and exporting WAV file...",dt.textContent="100%",st.style.width="100%";try{await he(t,{targetMode:n,bitDepth:e,targetSampleRate:l},i.rawFileName)}catch(f){console.error("Export failed",f),alert("WAVエクスポートに失敗しました: "+f.message)}finally{_.style.display="none"}}}),window.addEventListener("resize",()=>{Z(),Mt(Tt,A.getAnalyser(),A.isPlaying,i.rawBuffer,i.params.cutoffHz,i.activeMonitoringMode)})}Ue();ne();Z();Mt(Tt,null,!1,null,i.params.cutoffHz,i.activeMonitoringMode);</script>
+  <style rel="stylesheet" crossorigin>:root{--bg-main: #0b0f19;--bg-card: #111827;--bg-surface: #1f293d;--text-main: #f3f4f6;--text-sub: #9ca3af;--accent-cyan: #00f2fe;--accent-blue: #4facfe;--accent-purple: #7928ca;--accent-pink: #f72585;--accent-yellow: #f59e0b;--accent-green: #10b981;--border-color: #2d3748;--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;--font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace}*{box-sizing:border-box;margin:0;padding:0}body{background-color:var(--bg-main);color:var(--text-main);font-family:var(--font-sans);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}header{background:#111827d9;backdrop-filter:blur(12px);border-bottom:1px solid var(--border-color);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}.logo-container{display:flex;align-items:center;gap:12px}.logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent-cyan),var(--accent-purple));border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 12px #00f2fe66}.logo-text h1{font-size:1.15rem;font-weight:700;letter-spacing:-.02em;background:linear-gradient(90deg,#ffffff,var(--accent-cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent}.logo-text p{font-size:.72rem;color:var(--text-sub)}.header-badges{display:flex;align-items:center;gap:8px}.badge{font-size:.7rem;font-family:var(--font-mono);padding:4px 8px;border-radius:4px;background:var(--bg-surface);border:1px solid var(--border-color);color:var(--text-sub)}.badge-active{background:#00f2fe1a;border-color:#00f2fe4d;color:var(--accent-cyan)}.btn{background:var(--bg-surface);color:var(--text-main);border:1px solid var(--border-color);padding:8px 16px;border-radius:6px;font-size:.85rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .2s ease;user-select:none}.btn:hover:not(:disabled){background:#2d3748;border-color:#4a5568}.btn:disabled{opacity:.45;cursor:not-allowed}.btn-primary{background:linear-gradient(135deg,var(--accent-cyan),var(--accent-blue));color:#050811;border:none;font-weight:700;box-shadow:0 0 10px #00f2fe4d}.btn-primary:hover:not(:disabled){box-shadow:0 0 16px #00f2fe99;transform:translateY(-1px)}.btn-export{background:linear-gradient(135deg,var(--accent-pink),#b5179e);color:#fff;border:none;font-weight:700;box-shadow:0 0 10px #f725854d}.btn-export:hover:not(:disabled){box-shadow:0 0 16px #f7258566}@keyframes pulseGlow{0%,to{box-shadow:0 0 8px #00f2fe66}50%{box-shadow:0 0 20px #00f2fee6;transform:scale(1.02)}}@keyframes spin{to{transform:rotate(360deg)}}.spinner-sm{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.25);border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:5px}.btn-apply-active{background:linear-gradient(135deg,var(--accent-cyan) 0%,var(--accent-blue) 100%)!important;color:#050811!important;animation:pulseGlow 1.8s infinite ease-in-out;border:none!important;cursor:pointer!important;opacity:1!important}main{flex:1;padding:20px;max-width:1400px;margin:0 auto;width:100%;display:flex;flex-direction:column;gap:20px}.drop-zone{border:2px dashed var(--border-color);border-radius:12px;padding:32px 20px;text-align:center;background:#11182780;cursor:pointer;transition:all .2s ease;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px}.drop-zone:hover,.drop-zone.dragover{border-color:var(--accent-cyan);background:#00f2fe0d}.drop-icon{width:48px;height:48px;color:var(--accent-cyan);margin-bottom:4px}.drop-title{font-size:1.1rem;font-weight:600;margin-bottom:6px;color:var(--text-main)}.drop-subtitle{font-size:.8rem;color:var(--text-sub)}.track-meta-banner{background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;padding:12px 16px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;font-size:.85rem}.track-info-group{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.info-tag{display:inline-flex;align-items:center;gap:6px;color:var(--text-sub)}.info-tag strong{color:var(--text-main);font-family:var(--font-mono)}.progress-container{background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px 16px;display:none;flex-direction:column;gap:8px}.progress-header{display:flex;justify-content:space-between;font-size:.85rem;font-family:var(--font-mono)}.progress-bar-bg{width:100%;height:8px;background:#ffffff14;border-radius:4px;overflow:hidden}.progress-bar-fill{width:0%;height:100%;background:linear-gradient(90deg,var(--accent-cyan),var(--accent-purple));border-radius:4px;transition:width .1s ease}.visualizers-grid{display:grid;grid-template-columns:1fr;gap:16px}.card{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}.card-header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}.card-title{font-size:.95rem;font-weight:700;display:flex;align-items:center;gap:8px}.view-switch-group{display:flex;background:#0f172ab3;border:1px solid var(--border-color);border-radius:8px;padding:2px;gap:2px}.view-tab-btn{padding:5px 12px;border:none;background:transparent;color:var(--text-sub);font-size:.75rem;font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s ease;user-select:none}.view-tab-btn:hover{color:var(--text-main)}.view-tab-btn.active{background:#1e293b;color:var(--accent-cyan);border:1px solid rgba(0,242,254,.35);box-shadow:0 0 8px #00f2fe26}.canvas-container{position:relative;width:100%;height:180px;background:#06080e;border-radius:8px;border:1px solid #1a2233;overflow:hidden}canvas{width:100%;height:100%;display:block}.player-card{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}.seek-container{display:flex;align-items:center;gap:12px}.time-label{font-family:var(--font-mono);font-size:.8rem;color:var(--text-sub);min-width:44px}.seek-bar{flex:1;-webkit-appearance:none;height:6px;background:#232d42;border-radius:3px;outline:none;cursor:pointer}.seek-bar::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent-cyan);cursor:pointer;box-shadow:0 0 8px #00f2fecc}.playback-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}.playback-buttons{display:flex;align-items:center;gap:8px}.ab-switch-group{display:flex;background:#090c14;border:1px solid var(--border-color);border-radius:8px;padding:3px;gap:2px}.ab-btn{padding:6px 14px;border:none;background:transparent;color:var(--text-sub);font-size:.8rem;font-weight:600;border-radius:6px;cursor:pointer;transition:all .15s ease;user-select:none}.ab-btn.active{color:#fff}.ab-btn[data-mode=original].active{background:#3b82f6;box-shadow:0 0 10px #3b82f666}.ab-btn[data-mode=denoised].active{background:var(--accent-green);box-shadow:0 0 10px #10b98166}.ab-btn[data-mode=highs-clean].active{background:var(--accent-cyan);color:#06080e;font-weight:700;box-shadow:0 0 10px #00f2fe66}.ab-btn[data-mode=delta].active{background:var(--accent-pink);box-shadow:0 0 10px #f7258566}.params-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.param-box{background:var(--bg-surface);border:1px solid var(--border-color);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px}.param-header{display:flex;justify-content:space-between;align-items:center}.param-name{font-size:.85rem;font-weight:600;color:var(--text-main)}.param-val{font-family:var(--font-mono);font-size:.85rem;font-weight:700;color:var(--accent-cyan)}.slider-input{width:100%;-webkit-appearance:none;height:5px;background:#1a2233;border-radius:3px;outline:none;cursor:pointer}.slider-input::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;cursor:pointer;box-shadow:0 0 6px #fff9}.param-desc{font-size:.72rem;color:var(--text-sub);line-height:1.35}.param-select{background:#131b2e;border:1px solid var(--border-color);color:var(--text-main);padding:6px 10px;border-radius:6px;font-size:.85rem;outline:none;cursor:pointer}.export-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;align-items:flex-end}.export-col{display:flex;flex-direction:column;gap:6px}.export-col label{font-size:.8rem;color:var(--text-sub);font-weight:500}.export-btn-col{justify-content:flex-end}.btn-export-action{height:38px;width:100%;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}footer{text-align:center;padding:20px;font-size:.75rem;color:var(--text-sub);border-top:1px solid var(--border-color);margin-top:auto}</style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="brand-title">
+      <h1>AI Audio De-Noiser</h1>
+      <span class="version-badge">v1.3.0</span>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main>
+    <!-- File Drop Zone -->
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg">
+      <div class="drop-title">🎵 Drag & Drop Audio File Here or Click to Browse</div>
+    </div>
+
+    <!-- Track Meta Banner -->
+    <div class="track-meta-banner" id="trackMetaBanner" style="display: none;">
+      <div class="track-info-group">
+        <span class="info-tag">File: <strong id="metaFileName">-</strong></span>
+        <span class="info-tag">Sample Rate: <strong id="metaSampleRate">- Hz</strong></span>
+        <span class="info-tag">Channels: <strong id="metaChannels">-</strong></span>
+        <span class="info-tag">Duration: <strong id="metaDuration">-:--</strong></span>
+      </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-header">
+        <span id="progressStatusText">Analyzing adaptive noise...</span>
+        <span id="progressPercentText">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBarFill"></div>
+      </div>
+    </div>
+
+    <!-- Visualizers Grid -->
+    <div class="visualizers-grid">
+      <!-- 1. Noise Floor Timeline / 2D Gain Map Card -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            <span id="visualizerTitle">Timeline Noise Floor & Dynamics</span>
+          </div>
+
+          <!-- View Switch Tabs -->
+          <div class="view-switch-group">
+            <button class="view-tab-btn active" id="tabTimelineRMS" data-tab="rms">📈 RMS & Noise Floor</button>
+            <button class="view-tab-btn" id="tabTimeline2D" data-tab="2d">🔲 2D Gain & Transient Map</button>
+          </div>
+
+          <!-- Legends -->
+          <div id="legendRMS" style="font-size: 0.75rem; color: var(--text-sub); display: flex; gap: 12px;">
+            <span style="color: #60a5fa;">■ Track RMS</span>
+            <span style="color: var(--accent-pink);">■ HF Noise Floor (6k-16kHz)</span>
+            <span style="color: var(--accent-green);">■ Cleaned Noise Floor</span>
+          </div>
+          <div id="legend2D" style="font-size: 0.75rem; color: var(--text-sub); display: none; gap: 12px; align-items: center;">
+            <span style="color: #fbbf24;">━ Attack Protection (0-100%)</span>
+            <span style="color: #00b4d8;">■ Noise Attenuation (0dB to -12dB)</span>
+            <span style="color: #fbbf24; opacity: 0.8;">╌ Cutoff Frequency</span>
+          </div>
+        </div>
+
+        <!-- Container 1: RMS / Noise Floor Timeline -->
+        <div class="canvas-container" id="containerRMS" style="height: 180px;">
+          <canvas id="canvasTimeline"></canvas>
+        </div>
+
+        <!-- Container 2: 2D Attenuation & Transient Bypass Map -->
+        <div class="canvas-container" id="container2D" style="height: 180px; display: none;">
+          <canvas id="canvas2DMap"></canvas>
+        </div>
+      </div>
+
+      <!-- 2. Realtime Spectrum Canvas -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-purple)" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Realtime Multi-Spectrum Analyzer
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-sub); display: flex; gap: 12px; flex-wrap: wrap;">
+            <span style="color: #3b82f6;">■ 原音 (Original)</span>
+            <span style="color: var(--accent-green);">■ 除去後 (Denoised)</span>
+            <span style="color: var(--accent-cyan);">■ 除去後高域 (Highs Clean)</span>
+            <span style="color: var(--accent-pink);">■ 除去差分 (Delta)</span>
+          </div>
+        </div>
+        <div class="canvas-container" style="height: 180px;">
+          <canvas id="canvasSpectrum"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Player & Monitoring Card -->
+    <div class="player-card">
+      <!-- Seekbar -->
+      <div class="seek-container">
+        <span class="time-label" id="timeCurrent">0:00</span>
+        <input type="range" class="seek-bar" id="seekBar" min="0" max="100" step="0.1" value="0" disabled>
+        <span class="time-label" id="timeTotal">0:00</span>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="playback-toolbar">
+        <div class="playback-buttons">
+          <button class="btn" id="btnPlayPause" disabled>
+            <svg id="iconPlay" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span id="labelPlay">Play</span>
+          </button>
+          <button class="btn" id="btnLoop" style="opacity: 0.6;">
+            🔁 Loop
+          </button>
+        </div>
+
+        <!-- A/B Comparison Switch -->
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 0.8rem; color: var(--text-sub); font-weight: 600;">Source:</span>
+          <div class="ab-switch-group">
+            <button class="ab-btn active" data-mode="denoised" id="btnModeDenoised">Denoised (除去後)</button>
+            <button class="ab-btn" data-mode="original" id="btnModeOriginal">Original (原音)</button>
+            <button class="ab-btn" data-mode="highs-clean" id="btnModeHighsClean" title="Cutoff周波数以上のノイズ除去後音声">Highs Clean (除去後高域)</button>
+            <button class="ab-btn" data-mode="delta" id="btnModeDelta">Delta (除去ノイズのみ)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Parameters Configuration Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-yellow)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Adaptive Denoise Parameters
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div id="paramStatusBadge" style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--accent-green); background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 10px; border-radius: 9999px; transition: all 0.2s ease;">
+            🟢 適用済み
+          </div>
+          <button class="btn btn-primary" id="btnApplyParams" style="padding: 6px 14px; font-size: 0.8rem; font-weight: 700;" disabled>
+            ⚡ 変更を適用 (Apply)
+          </button>
+        </div>
+      </div>
+
+      <div class="params-grid">
+        <!-- Param 1: Reduction Amount -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">ノイズ減衰量 (Amount)</span>
+            <span class="param-val" id="valAmount">12.0 dB</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderAmount" min="2" max="24" step="0.5" value="12">
+          <span class="param-desc">ノイズ成分の最大減衰幅。強すぎると原音の空気感が減るため、10〜14dBが最適推奨です。</span>
+        </div>
+
+        <!-- Param 2: Target Cutoff Frequency -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">対象周波数の下限 (Cutoff)</span>
+            <span class="param-val" id="valCutoff">6,000 Hz</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderCutoff" min="3000" max="12000" step="500" value="6000">
+          <span class="param-desc">この周波数以上の高周波ヒス/ホワイトノイズを集中的に低減します。中低域には一切影響しません。</span>
+        </div>
+
+        <!-- Param 3: Adaptive Tracking Speed -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">適応追従速度 (Tracking)</span>
+            <span class="param-val" id="valTracking">1.5 sec</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderTracking" min="0.5" max="3.5" step="0.25" value="1.5">
+          <span class="param-desc">曲の後半にかけて増大するノイズフロアの追従感度。1.5秒前後で休符や静音のノイズを的確に補足します。</span>
+        </div>
+
+        <!-- Param 4: Transient Protection -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">アタック保護 (Transient)</span>
+            <span class="param-val" id="valTransient">80 %</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderTransient" min="0" max="100" step="5" value="80">
+          <span class="param-desc">打楽器（スネア・ハイハット）やボーカルの立ち上がり瞬間を検知し、ノイズ除去を瞬間バイパスしてパンチ感を保持。</span>
+        </div>
+
+        <!-- Param 5: Oversubtraction (Alpha) -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">除去強度 (Aggressiveness)</span>
+            <span class="param-val" id="valAlpha">1.3 x</span>
+          </div>
+          <input type="range" class="slider-input" id="sliderAlpha" min="1.0" max="2.0" step="0.05" value="1.3">
+          <span class="param-desc">スペクトル引き算のオーバーサブトラクション係数。微細なノイズの残りかすを徹底除去します。</span>
+        </div>
+
+        <!-- Param 6: Musical Noise Smoothing -->
+        <div class="param-box">
+          <div class="param-header">
+            <span class="param-name">ミュージカルノイズ平滑化 (Smoothing)</span>
+            <span class="param-val" id="valSmoothing">Medium</span>
+          </div>
+          <select class="param-select" id="selectSmoothing">
+            <option value="low">Low (最小平滑化・トランジェント最優先)</option>
+            <option value="med" selected>Medium (標準推奨・高い自然さ)</option>
+            <option value="high">High (強力平滑化・残響感を保護)</option>
+          </select>
+          <span class="param-desc">時間・周波数方向の2次元スムージング。プチプチ・ピロピロとしたアーティファクトを根絶。</span>
+        </div>
+      </div>
+    </div>
+    <!-- Export Configuration Card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-cyan)" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          WAV Export
+        </div>
+      </div>
+      <div class="export-grid">
+        <div class="export-col">
+          <label for="exportSampleRate">Sample Rate</label>
+          <select class="param-select" id="exportSampleRate">
+            <option value="source">Same as Source (Recommended)</option>
+            <option value="44100">44,100 Hz (CD Standard)</option>
+            <option value="48000">48,000 Hz (Broadcast Standard)</option>
+            <option value="96000">96,000 Hz (Hi-Res)</option>
+          </select>
+        </div>
+        <div class="export-col">
+          <label for="exportBitDepth">Bit Depth</label>
+          <select class="param-select" id="exportBitDepth">
+            <option value="16">16-bit PCM (TPDF Dither / CD Standard)</option>
+            <option value="24" selected>24-bit PCM (Studio Master / 144dB)</option>
+            <option value="32">32-bit Float (DAW / Clip-Free)</option>
+          </select>
+        </div>
+        <div class="export-col">
+          <label for="exportTargetMode">Export Target</label>
+          <select class="param-select" id="exportTargetMode">
+            <option value="denoised" selected>Denoised (Master Audio)</option>
+            <option value="highs-clean">Highs Clean (Above Cutoff)</option>
+            <option value="delta">Delta (Removed Noise Only)</option>
+          </select>
+        </div>
+        <div class="export-col export-btn-col">
+          <button class="btn btn-primary btn-export-action" id="btnConfirmExport" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export WAV
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    AI Audio De-Noiser v1.3.0
+  </footer>
+
+</body>
+</html>
